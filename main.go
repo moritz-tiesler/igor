@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -72,8 +74,34 @@ func main() {
 		fmt.Sprintf("%s%s", language, ".gitignore"),
 	)
 
-	outFileName := ".gitignore"
-	err := downLoadFile(langUrl, outFileName)
+	outputFileName := ".gitignore"
+
+	var shouldAppend bool
+	var userAction string = "overwrite" // Default to overwrite if no file exists
+	_, err := os.Stat(outputFileName)
+	if err == nil {
+		choice, promptErr := promptForOverwrite(outputFileName)
+		if promptErr != nil {
+			fmt.Fprintf(os.Stderr, "Error reading user input: %v\n", promptErr)
+			os.Exit(1)
+		}
+		userAction = choice
+		switch userAction {
+		case "cancel":
+			fmt.Println("Operation cancelled by user.")
+			os.Exit(0)
+		case "append":
+			shouldAppend = true
+		case "overwrite":
+			fmt.Printf("Overwriting '%s'...\n", outputFileName)
+			shouldAppend = false
+		}
+
+	} else if !errors.Is(err, fs.ErrNotExist) { // Some error other than "file not found"
+		fmt.Fprintf(os.Stderr, "Error checking file status: %v\n", err)
+		os.Exit(1)
+	}
+	err = downLoadFile(langUrl, outputFileName, shouldAppend)
 	if err != nil {
 		if errors.Is(err, ErrGitignoreNotFound) {
 			fmt.Fprintf(os.Stderr, "Error: No .gitignore file found for '%s'.\n", language)
@@ -102,7 +130,7 @@ type ContentEntry struct {
 
 var ErrGitignoreNotFound = errors.New("gitignore file not found for the specified language")
 
-func downLoadFile(langUrl string, filePath string) error {
+func downLoadFile(langUrl string, filePath string, appendMode bool) error {
 
 	resp, err := http.Get(langUrl)
 	if err != nil {
@@ -116,12 +144,24 @@ func downLoadFile(langUrl string, filePath string) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("received non-OK HTTP status for %s: %s", langUrl, resp.Status)
 	}
+	// Determine file opening mode
+	var fileMode int
+	if appendMode {
+		fileMode = os.O_APPEND | os.O_CREATE | os.O_WRONLY
+	} else {
+		fileMode = os.O_TRUNC | os.O_CREATE | os.O_WRONLY
+	}
 
-	out, err := os.Create(filePath)
+	out, err := os.OpenFile(filePath, fileMode, 0644)
 	if err != nil {
-		return fmt.Errorf("failed to create file %s: %w", filePath, err)
+		return fmt.Errorf("failed to open/create file %s: %w", filePath, err)
 	}
 	defer out.Close()
+	if appendMode {
+		if _, err := out.WriteString("\n"); err != nil {
+			return fmt.Errorf("failed to write append separator: %w", err)
+		}
+	}
 
 	bytesCopied, err := io.Copy(out, resp.Body)
 	if err != nil {
@@ -183,5 +223,25 @@ func displayFileList(files []string) {
 		}
 		displayName := strings.TrimSuffix(f, filepath.Ext(f))
 		fmt.Println(displayName)
+	}
+}
+
+func promptForOverwrite(filePath string) (string, error) {
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Printf("A '%s' file already exists. What would you like to do? (o)verwrite / (a)ppend / (c)ancel: ", filePath)
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(strings.ToLower(input)) // Clean and normalize input
+
+		switch input {
+		case "o", "overwrite":
+			return "overwrite", nil
+		case "a", "append":
+			return "append", nil
+		case "c", "cancel":
+			return "cancel", nil
+		default:
+			fmt.Println("Invalid choice. Please enter 'o', 'a', or 'c'.")
+		}
 	}
 }
