@@ -111,7 +111,7 @@ jobs:
         find release_assets -type f -print0 | while IFS= read -r -d $'\0' file; do
           if [ -f "$file" ]; then
             echo "Uploading $file to release"
-            gh release upload "${{ steps.create_release.outputs.tag_name }}" "$file" --repo "${{ github.repository }}" --clobber
+            gh release upload "${{ steps.create_release.outputs.upload_url }}" "$file" --repo "${{ github.repository }}" --clobber
           else
             echo "Skipping non-file: $file"
           fi
