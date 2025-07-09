@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
+	"unicode/utf8"
 )
 
 const (
-	contentsUrl = "https://api.github.com/repos/github/gitignore/contentsss/"
+	contentsUrl = "https://api.github.com/repos/github/gitignore/contents/"
 	rawPrefix   = "https://raw.githubusercontent.com/github/gitignore/main/"
 )
 
@@ -32,13 +35,14 @@ func main() {
 			os.Exit(1)
 		}
 		fileList := loadFiles(fileData)
-		fmt.Println(fileList)
+		displayFileList(fileList)
 	}
 }
 
 const (
 	TYPE_FILE = "file"
 	TYPE_DIR  = "dir"
+	EXT       = ".gitignore"
 )
 
 type Content []ContentEntry
@@ -52,6 +56,9 @@ func loadFiles(content Content) []string {
 	fileList := []string{}
 	for _, file := range content {
 		if file.Type == TYPE_DIR {
+			continue
+		}
+		if filepath.Ext(file.Name) != EXT {
 			continue
 		}
 		fileList = append(fileList, file.Name)
@@ -71,4 +78,26 @@ func fetchList(url string) (Content, error) {
 	}
 	return content, nil
 
+}
+
+const LIST_HEADER = "Available .gitignore files:\n\n"
+const SEP = "---\n"
+
+// assumes the files are sorted alphabetically
+func displayFileList(files []string) {
+	var currentFirst rune
+	fmt.Print(LIST_HEADER)
+	for _, f := range files {
+		// get first complete rune, not only first byte
+		firstLetter, _ := utf8.DecodeRuneInString(f)
+		if currentFirst == 0 {
+			currentFirst = firstLetter
+		}
+		if firstLetter != currentFirst {
+			fmt.Print(SEP)
+			currentFirst = firstLetter
+		}
+		displayName := strings.TrimSuffix(f, filepath.Ext(f))
+		fmt.Println(displayName)
+	}
 }
