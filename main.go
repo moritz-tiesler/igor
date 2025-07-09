@@ -8,19 +8,16 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
-)
-
-const (
-	CONTENTS_URL = "https://api.github.com/repos/github/gitignore/contents/"
-	RAW_REFIX    = "https://raw.githubusercontent.com/github/gitignore/main/"
 )
 
 var doList bool
@@ -50,8 +47,12 @@ func init() {
 func main() {
 	flag.Parse()
 
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
 	if doList {
-		fileData, err := fetchList(CONTENTS_URL)
+		fileData, err := fetchList(client, CONTENTS_URL)
 		if err != nil {
 			fmt.Printf("could not fetch file list from %s\n", CONTENTS_URL)
 			os.Exit(1)
@@ -80,6 +81,7 @@ func main() {
 	var userAction string = "overwrite" // Default to overwrite if no file exists
 	_, err := os.Stat(outputFileName)
 	if err == nil {
+		// file exists
 		choice, promptErr := promptForOverwrite(outputFileName)
 		if promptErr != nil {
 			fmt.Fprintf(os.Stderr, "Error reading user input: %v\n", promptErr)
@@ -101,7 +103,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error checking file status: %v\n", err)
 		os.Exit(1)
 	}
-	err = downLoadFile(langUrl, outputFileName, shouldAppend)
+
+	err = downLoadFile(client, langUrl, outputFileName, shouldAppend)
 	if err != nil {
 		if errors.Is(err, ErrGitignoreNotFound) {
 			fmt.Fprintf(os.Stderr, "Error: No .gitignore file found for '%s'.\n", language)
@@ -112,6 +115,7 @@ func main() {
 		}
 		os.Exit(1)
 	}
+
 	fmt.Println("File downloaded successfully!")
 }
 
@@ -119,6 +123,11 @@ const (
 	TYPE_FILE = "file"
 	TYPE_DIR  = "dir"
 	EXT       = ".gitignore"
+)
+
+const (
+	CONTENTS_URL = "https://api.github.com/repos/github/gitignore/contents/"
+	RAW_REFIX    = "https://raw.githubusercontent.com/github/gitignore/main/"
 )
 
 type Content []ContentEntry
@@ -130,10 +139,13 @@ type ContentEntry struct {
 
 var ErrGitignoreNotFound = errors.New("gitignore file not found for the specified language")
 
-func downLoadFile(langUrl string, filePath string, appendMode bool) error {
+func downLoadFile(client *http.Client, langUrl string, filePath string, appendMode bool) error {
 
-	resp, err := http.Get(langUrl)
+	resp, err := client.Get(langUrl)
 	if err != nil {
+		if isNetWorkErr(err) {
+			os.Exit(1)
+		}
 		return fmt.Errorf("failed to make HTTP request to %s: %w", langUrl, err)
 	}
 	defer resp.Body.Close()
@@ -185,10 +197,15 @@ func loadFiles(content Content) []string {
 	return fileList
 }
 
-func fetchList(url string) (Content, error) {
+var b = errors.Is(nil, os.ErrDeadlineExceeded)
+
+func fetchList(client *http.Client, url string) (Content, error) {
 	var content Content
-	resp, err := http.Get(url)
+	resp, err := client.Get(url)
 	if err != nil {
+		if isNetWorkErr(err) {
+			os.Exit(1)
+		}
 		return content, err
 	}
 	defer resp.Body.Close()
@@ -244,4 +261,17 @@ func promptForOverwrite(filePath string) (string, error) {
 			fmt.Println("Invalid choice. Please enter 'o', 'a', or 'c'.")
 		}
 	}
+}
+
+func isNetWorkErr(err error) bool {
+	if err != nil {
+		// Check if the error is a timeout error
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			fmt.Printf("Request timed out: %v\n", err)
+		} else if uerr, ok := err.(*url.Error); ok && uerr.Timeout() {
+			fmt.Printf("Request timed out (url.Error): %v\n", err)
+		}
+		return true
+	}
+	return false
 }
