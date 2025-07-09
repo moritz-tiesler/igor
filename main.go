@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,8 +16,8 @@ import (
 )
 
 const (
-	contentsUrl = "https://api.github.com/repos/github/gitignore/contents/"
-	rawPrefix   = "https://raw.githubusercontent.com/github/gitignore/main/"
+	CONTENTS_URL = "https://api.github.com/repos/github/gitignore/contents/"
+	RAWP_REFIX   = "https://raw.githubusercontent.com/github/gitignore/main/"
 )
 
 var doList bool
@@ -44,21 +46,54 @@ func init() {
 
 func main() {
 	flag.Parse()
-	args := os.Args
-	if len(args) != 2 {
+	args := flag.Args()
+
+	if len(args) != 1 {
 		flag.Usage()
 		os.Exit(1)
 	}
+
 	if doList {
-		fileData, err := fetchList(contentsUrl)
+		fileData, err := fetchList(CONTENTS_URL)
 		if err != nil {
-			fmt.Printf("could not fetch file list form %s\n", contentsUrl)
+			fmt.Printf("could not fetch file list form %s\n", CONTENTS_URL)
 			os.Exit(1)
 		}
 		fileList := loadFiles(fileData)
 		displayFileList(fileList)
 		os.Exit(0)
 	}
+
+	language := args[0]
+	langUrl, _ := url.JoinPath(
+		RAWP_REFIX,
+		fmt.Sprintf("%s%s", language, ".gitignore"),
+	)
+
+	resp, err := http.Get(langUrl)
+	if err != nil {
+		fmt.Printf("could not fetch file form %s\n", langUrl)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("received non-OK HTTP status for %s: %s\n", langUrl, resp.Status)
+		os.Exit(1)
+	}
+
+	out, err := os.Create(".gitignore")
+	if err != nil {
+		fmt.Printf("could not create .gitignore file:\n%s\n", err)
+		os.Exit(1)
+	}
+	defer out.Close()
+
+	bytesCopied, err := io.Copy(out, resp.Body)
+	if err != nil {
+		fmt.Printf("failed to copy content to file %s: %s\n", ".gitignore", err)
+	}
+	fmt.Printf("Successfully downloaded %d bytes to %s\n", bytesCopied, ".gitignore")
+
 }
 
 const (
@@ -90,11 +125,12 @@ func loadFiles(content Content) []string {
 
 func fetchList(url string) (Content, error) {
 	var content Content
-	data, err := http.Get(url)
+	resp, err := http.Get(url)
 	if err != nil {
 		return content, err
 	}
-	err = json.NewDecoder(data.Body).Decode(&content)
+	defer resp.Body.Close()
+	err = json.NewDecoder(resp.Body).Decode(&content)
 	if err != nil {
 		return content, err
 	}
