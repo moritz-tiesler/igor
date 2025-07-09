@@ -1,6 +1,17 @@
 # igor
 
-A simple command-line tool to quickly fetch and copy `.gitignore` files from the official `github/gitignore` repository into your current project directory.
+A simple command-line tool to quickly fetch and copy `.gitignore` files from the official [**github/gitignore**](https://github.com/github/gitignore) repository into your current project directory.
+
+##  Installation
+
+### 1. Pre-compiled Binaries 
+
+1.  Go to the [**Releases page**](https://github.com/moritz-tiesler/igor/releases).
+2.  Download the appropriate `.zip` or `.tar.gz` file for your system.
+
+### 2. From Source using `go install`
+
+If you have Go (1.18 or higher recommended) installed and prefer to build from source, you can use `go install`:
 
 ```bash
 go install github.com/moritz-tiesler/igor@latest
