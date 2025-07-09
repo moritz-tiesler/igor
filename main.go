@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -83,19 +85,23 @@ func fetchList(url string) (Content, error) {
 const LIST_HEADER = "Available .gitignore files:\n\n"
 const SEP = "---\n"
 
-// assumes the files are sorted alphabetically
 func displayFileList(files []string) {
 	var currentFirst rune
+	slices.SortFunc(files, func(a, b string) int {
+		return strings.Compare(strings.ToLower(a), strings.ToLower(b))
+	})
+
 	fmt.Print(LIST_HEADER)
 	for _, f := range files {
 		// get first complete rune, not only first byte
 		firstLetter, _ := utf8.DecodeRuneInString(f)
+		firstLetter = unicode.ToLower(firstLetter)
 		if currentFirst == 0 {
-			currentFirst = firstLetter
+			currentFirst = unicode.ToLower(firstLetter)
 		}
 		if firstLetter != currentFirst {
 			fmt.Print(SEP)
-			currentFirst = firstLetter
+			currentFirst = unicode.ToLower(firstLetter)
 		}
 		displayName := strings.TrimSuffix(f, filepath.Ext(f))
 		fmt.Println(displayName)
