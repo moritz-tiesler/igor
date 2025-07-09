@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -17,7 +18,7 @@ import (
 
 const (
 	CONTENTS_URL = "https://api.github.com/repos/github/gitignore/contents/"
-	RAWP_REFIX   = "https://raw.githubusercontent.com/github/gitignore/main/"
+	RAW_REFIX    = "https://raw.githubusercontent.com/github/gitignore/main/"
 )
 
 var doList bool
@@ -46,17 +47,11 @@ func init() {
 
 func main() {
 	flag.Parse()
-	args := flag.Args()
-
-	if len(args) != 1 {
-		flag.Usage()
-		os.Exit(1)
-	}
 
 	if doList {
 		fileData, err := fetchList(CONTENTS_URL)
 		if err != nil {
-			fmt.Printf("could not fetch file list form %s\n", CONTENTS_URL)
+			fmt.Printf("could not fetch file list from %s\n", CONTENTS_URL)
 			os.Exit(1)
 		}
 		fileList := loadFiles(fileData)
@@ -64,36 +59,32 @@ func main() {
 		os.Exit(0)
 	}
 
+	args := flag.Args()
+
+	if len(args) != 1 {
+		flag.Usage()
+		os.Exit(1)
+	}
+
 	language := args[0]
 	langUrl, _ := url.JoinPath(
-		RAWP_REFIX,
+		RAW_REFIX,
 		fmt.Sprintf("%s%s", language, ".gitignore"),
 	)
 
-	resp, err := http.Get(langUrl)
+	outFileName := ".gitignore"
+	err := downLoadFile(langUrl, outFileName)
 	if err != nil {
-		fmt.Printf("could not fetch file form %s\n", langUrl)
+		if errors.Is(err, ErrGitignoreNotFound) {
+			fmt.Fprintf(os.Stderr, "Error: No .gitignore file found for '%s'.\n", language)
+			fmt.Fprintf(os.Stderr, "Please ensure you have typed the language name correctly.\n")
+			fmt.Fprintf(os.Stderr, "For a full list of available languages, use: %s --list\n", os.Args[0])
+		} else {
+			fmt.Fprintf(os.Stderr, "Error downloading .gitignore file: %v\n", err)
+		}
 		os.Exit(1)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		fmt.Printf("received non-OK HTTP status for %s: %s\n", langUrl, resp.Status)
-		os.Exit(1)
-	}
-
-	out, err := os.Create(".gitignore")
-	if err != nil {
-		fmt.Printf("could not create .gitignore file:\n%s\n", err)
-		os.Exit(1)
-	}
-	defer out.Close()
-
-	bytesCopied, err := io.Copy(out, resp.Body)
-	if err != nil {
-		fmt.Printf("failed to copy content to file %s: %s\n", ".gitignore", err)
-	}
-	fmt.Printf("Successfully downloaded %d bytes to %s\n", bytesCopied, ".gitignore")
-
+	fmt.Println("File downloaded successfully!")
 }
 
 const (
@@ -107,6 +98,37 @@ type Content []ContentEntry
 type ContentEntry struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
+}
+
+var ErrGitignoreNotFound = errors.New("gitignore file not found for the specified language")
+
+func downLoadFile(langUrl string, filePath string) error {
+
+	resp, err := http.Get(langUrl)
+	if err != nil {
+		return fmt.Errorf("failed to make HTTP request to %s: %w", langUrl, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return ErrGitignoreNotFound
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("received non-OK HTTP status for %s: %s", langUrl, resp.Status)
+	}
+
+	out, err := os.Create(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to create file %s: %w", filePath, err)
+	}
+	defer out.Close()
+
+	bytesCopied, err := io.Copy(out, resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to copy content to file %s: %w", filePath, err)
+	}
+	fmt.Printf("%d bytes written to %s\n", bytesCopied, filePath)
+	return nil
 }
 
 func loadFiles(content Content) []string {
