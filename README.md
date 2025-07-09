@@ -2,6 +2,8 @@
 
 A simple command-line tool to quickly fetch and copy `.gitignore` files from the official [**github/gitignore**](https://github.com/github/gitignore) repository into your current project directory.
 
+  
+
 ##  Installation
 
 ### 1. Pre-compiled Binaries 
@@ -16,6 +18,7 @@ If you have Go (1.18 or higher recommended) installed and prefer to build from s
 ```bash
 go install github.com/moritz-tiesler/igor@latest
 ```
+  
 
 ### Copy a `.gitignore` file
 
