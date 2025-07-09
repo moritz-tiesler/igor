@@ -54,7 +54,7 @@ func main() {
 	if doList {
 		fileData, err := fetchList(client, CONTENTS_URL)
 		if err != nil {
-			fmt.Printf("could not fetch file list from %s\n", CONTENTS_URL)
+			fmt.Printf("could not fetch file list from %s: %v\n", CONTENTS_URL, err)
 			os.Exit(1)
 		}
 		fileList := loadFiles(fileData)
@@ -209,6 +209,9 @@ func fetchList(client *http.Client, url string) (Content, error) {
 		return content, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return content, fmt.Errorf("received non-OK HTTP status for %s: %s", url, resp.Status)
+	}
 	err = json.NewDecoder(resp.Body).Decode(&content)
 	if err != nil {
 		return content, err
