@@ -13,7 +13,7 @@ A simple command-line tool to quickly fetch and copy `.gitignore` files from the
 
 ### 2. From Source using `go install`
 
-If you have Go (1.18 or higher recommended) installed and prefer to build from source, you can use `go install`:
+If you have Go (1.18 or higher needed) installed and prefer to build from source, you can use `go install`:
 
 ```bash
 go install github.com/moritz-tiesler/igor@latest
