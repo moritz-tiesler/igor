@@ -75,7 +75,11 @@ jobs:
     if: success() && github.ref_type == 'tag'
 
     permissions:
-      contents: write # Only create release if builds passed and it's a tag push
+      contents: write # For creating the release and uploading assets
+      actions: read   # Needed by actions/github-script to list workflow runs/artifacts
+      checks: read    # Good practice, often used with actions/github-script
+      pull-requests: read # Not strictly needed for this, but common
+      statuses: read    # Not strictly needed for this, but common
 
     steps:
     - name: Create Release
@@ -89,43 +93,22 @@ jobs:
         draft: false
         prerelease: false
 
-    - name: Get all uploaded artifacts
-      uses: actions/github-script@v6
-      id: get_artifacts
+    - name: Download all build artifacts
+      uses: actions/download-artifact@v4
       with:
-        script: |
-          const artifacts = await github.rest.actions.listWorkflowRunsForRepo({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            status: 'success',
-            branch: context.ref.replace('refs/tags/', ''),
-            event: 'push',
-            workflow_id: '${{ github.workflow_id }}', // ID of current workflow
-          });
+        path: release_assets # Download all artifacts into this directory
 
-          // Filter for artifacts from the current tag push and the 'build' job
-          const currentRunId = context.runId;
-          const currentArtifacts = artifacts.data.workflow_runs
-            .find(run => run.id === currentRunId)
-            .artifacts_url;
-
-          const response = await github.request(currentArtifacts);
-          return response.data.artifacts.map(a => a.name);
-        result-encoding: json
-
-    - name: Download each artifact and upload to release
+    - name: Install GitHub CLI
       run: |
-        mkdir -p release_assets
-        for artifact_name in $(echo "${{ steps.get_artifacts.outputs.result }}" | jq -r '.[]'); do
-          echo "Downloading artifact: $artifact_name"
-          gh run download ${{ github.run_id }} -n "$artifact_name" -D release_assets
-        done
+        sudo apt-get update
+        sudo apt-get install -y gh
 
-        # Re-list to ensure structure is correct after download
-        ls -R release_assets
-
-        # Upload assets to the release
-        for file in release_assets/*/*; do # Adjust if your download structure is different
+    - name: Upload artifacts to release
+      run: |
+        # The download-artifact action creates a directory for each artifact name.
+        # So your structure will be release_assets/ASSET_NAME/actual_file
+        # You need to iterate through these
+        find release_assets -type f -print0 | while IFS= read -r -d $'\0' file; do
           if [ -f "$file" ]; then
             echo "Uploading $file to release"
             gh release upload "${{ steps.create_release.outputs.tag_name }}" "$file" --repo "${{ github.repository }}" --clobber
