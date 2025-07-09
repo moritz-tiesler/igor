@@ -72,7 +72,10 @@ jobs:
     name: Create GitHub Release
     runs-on: ubuntu-latest
     needs: build # This job depends on all 'build' jobs completing successfully
-    if: success() && github.ref_type == 'tag' # Only create release if builds passed and it's a tag push
+    if: success() && github.ref
+
+    permissions:
+      contents: write_type == 'tag' # Only create release if builds passed and it's a tag push
 
     steps:
     - name: Create Release
