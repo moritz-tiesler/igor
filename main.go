@@ -23,13 +23,32 @@ var doList bool
 func init() {
 	const (
 		listDefault bool   = false
-		usage       string = "list available .gitignore files"
+		listUsage   string = "list available .gitignore files"
 	)
-	flag.BoolVar(&doList, "list", listDefault, usage)
+	flag.BoolVar(&doList, "list", listDefault, listUsage)
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "  This tool copies a .gitignore file for a specified language into the current directory.\n")
+		fmt.Fprintf(os.Stderr, "  It uses files from the github/gitignore repository.\n")
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		flag.PrintDefaults() // Prints descriptions for defined flags (like --list)
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "Usage examples:\n")
+		fmt.Fprintf(os.Stderr, "  %s <language>        (e.g., %s go, %s python, %s node)\n", os.Args[0], os.Args[0], os.Args[0], os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s --list            (To see all available languages)\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "\n")
+	}
 }
 
 func main() {
 	flag.Parse()
+	args := os.Args
+	if len(args) != 2 {
+		flag.Usage()
+		os.Exit(1)
+	}
 	if doList {
 		fileData, err := fetchList(contentsUrl)
 		if err != nil {
@@ -38,6 +57,7 @@ func main() {
 		}
 		fileList := loadFiles(fileData)
 		displayFileList(fileList)
+		os.Exit(0)
 	}
 }
 
