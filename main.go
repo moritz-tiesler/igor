@@ -7,8 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -20,6 +18,7 @@ import (
 	"unicode/utf8"
 )
 
+// flags
 var doList bool
 
 func init() {
@@ -44,21 +43,34 @@ func init() {
 	}
 }
 
-func main() {
-	flag.Parse()
+const (
+	CONTENTS_URL = "https://api.github.com/repos/github/gitignore/contents/"
+	RAW_PREFIX   = "https://raw.githubusercontent.com/github/gitignore/main/"
 
+	APPEND    = os.O_APPEND | os.O_CREATE | os.O_WRONLY
+	OVERWRITE = os.O_TRUNC | os.O_CREATE | os.O_WRONLY
+
+	TYPE_FILE = "file"
+	TYPE_DIR  = "dir"
+
+	GIT_IGNORE = ".gitignore"
+
+	LIST_HEADER = "Available .gitignore files:\n\n"
+	SEP         = "---\n"
+)
+
+func main() {
 	client := &http.Client{
-		Timeout: 10 * time.Second,
+		Timeout: 5 * time.Second,
 	}
 
+	flag.Parse()
+
 	if doList {
-		fileData, err := fetchList(client, CONTENTS_URL)
+		err := handleDoList(client)
 		if err != nil {
-			fmt.Printf("could not fetch file list from %s: %v\n", CONTENTS_URL, err)
-			os.Exit(1)
+			fmt.Println(err)
 		}
-		fileList := loadFiles(fileData)
-		displayFileList(fileList)
 		os.Exit(0)
 	}
 
@@ -70,117 +82,97 @@ func main() {
 	}
 
 	language := args[0]
-	langUrl, _ := url.JoinPath(
-		RAW_REFIX,
-		fmt.Sprintf("%s%s", language, ".gitignore"),
-	)
-
-	outputFileName := ".gitignore"
-
-	var shouldAppend bool
-	var userAction string = "overwrite" // Default to overwrite if no file exists
-	_, err := os.Stat(outputFileName)
-	if err == nil {
-		// file exists
-		choice, promptErr := promptForOverwrite(outputFileName)
-		if promptErr != nil {
-			fmt.Fprintf(os.Stderr, "Error reading user input: %v\n", promptErr)
-			os.Exit(1)
-		}
-		userAction = choice
-		switch userAction {
-		case "cancel":
-			fmt.Println("Operation cancelled by user.")
-			os.Exit(0)
-		case "append":
-			shouldAppend = true
-		case "overwrite":
-			fmt.Printf("Overwriting '%s'...\n", outputFileName)
-			shouldAppend = false
-		}
-
-	} else if !errors.Is(err, fs.ErrNotExist) { // Some error other than "file not found"
-		fmt.Fprintf(os.Stderr, "Error checking file status: %v\n", err)
-		os.Exit(1)
-	}
-
-	err = downLoadFile(client, langUrl, outputFileName, shouldAppend)
+	bytesWritten, err := handleFilePull(client, language)
 	if err != nil {
 		if errors.Is(err, ErrGitignoreNotFound) {
 			fmt.Fprintf(os.Stderr, "Error: No .gitignore file found for '%s'.\n", language)
 			fmt.Fprintf(os.Stderr, "Please ensure you have typed the language name correctly.\n")
 			fmt.Fprintf(os.Stderr, "For a full list of available languages, use: %s --list\n", os.Args[0])
+			os.Exit(1)
 		} else {
 			fmt.Fprintf(os.Stderr, "Error downloading .gitignore file: %v\n", err)
 		}
 		os.Exit(1)
 	}
 
+	fmt.Printf("%d bytes written to %s\n", bytesWritten, GIT_IGNORE)
 	fmt.Println("File downloaded successfully!")
 }
 
-const (
-	TYPE_FILE = "file"
-	TYPE_DIR  = "dir"
-	EXT       = ".gitignore"
-)
+func pullGitIgnore(
+	client *http.Client,
+	language string,
+	append bool,
+) (int64, error) {
 
-const (
-	CONTENTS_URL = "https://api.github.com/repos/github/gitignore/contents/"
-	RAW_REFIX    = "https://raw.githubusercontent.com/github/gitignore/main/"
-)
+	langUrl, _ := url.JoinPath(
+		RAW_PREFIX,
+		fmt.Sprintf("%s%s", language, ".gitignore"),
+	)
 
-type Content []ContentEntry
-
-type ContentEntry struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
-}
-
-var ErrGitignoreNotFound = errors.New("gitignore file not found for the specified language")
-
-func downLoadFile(client *http.Client, langUrl string, filePath string, appendMode bool) error {
-
-	resp, err := client.Get(langUrl)
+	body, err := downLoadFile(client, langUrl)
 	if err != nil {
-		if isNetWorkErr(err) {
-			os.Exit(1)
-		}
-		return fmt.Errorf("failed to make HTTP request to %s: %w", langUrl, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound {
-		return ErrGitignoreNotFound
+		return 0, fmt.Errorf("failed to download file %s: %w", langUrl, err)
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("received non-OK HTTP status for %s: %s", langUrl, resp.Status)
-	}
-	// Determine file opening mode
 	var fileMode int
-	if appendMode {
+	if append {
 		fileMode = os.O_APPEND | os.O_CREATE | os.O_WRONLY
 	} else {
 		fileMode = os.O_TRUNC | os.O_CREATE | os.O_WRONLY
 	}
 
-	out, err := os.OpenFile(filePath, fileMode, 0644)
+	n, err := writeGitIgnore(body, fileMode)
 	if err != nil {
-		return fmt.Errorf("failed to open/create file %s: %w", filePath, err)
+		return n, fmt.Errorf("failed to write file: %w", err)
+	}
+
+	return n, nil
+}
+
+var ErrGitignoreNotFound = errors.New(
+	".gitignore file not found for the specified language",
+)
+
+func downLoadFile(client *http.Client, langUrl string) (io.ReadCloser, error) {
+
+	var r io.ReadCloser
+	resp, err := client.Get(langUrl)
+	if err != nil {
+		return r, fmt.Errorf("failed to make HTTP request to %s: %w", langUrl, err)
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return r, ErrGitignoreNotFound
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return r, fmt.Errorf("received non-OK HTTP status for %s: %s", langUrl, resp.Status)
+	}
+
+	return resp.Body, nil
+}
+
+func writeGitIgnore(source io.ReadCloser, mode int) (int64, error) {
+
+	defer source.Close()
+	out, err := os.OpenFile(GIT_IGNORE, mode, 0644)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open/create file %s: %w", GIT_IGNORE, err)
 	}
 	defer out.Close()
-	if appendMode {
+
+	if mode == APPEND {
 		if _, err := out.WriteString("\n"); err != nil {
-			return fmt.Errorf("failed to write append separator: %w", err)
+			return 0, fmt.Errorf("failed to write append separator: %w", err)
 		}
 	}
 
-	bytesCopied, err := io.Copy(out, resp.Body)
+	bytesCopied, err := io.Copy(out, source)
 	if err != nil {
-		return fmt.Errorf("failed to copy content to file %s: %w", filePath, err)
+		return 0, fmt.Errorf("failed to copy content to file %s: %w", GIT_IGNORE, err)
 	}
-	fmt.Printf("%d bytes written to %s\n", bytesCopied, filePath)
-	return nil
+
+	return bytesCopied, nil
 }
 
 func loadFiles(content Content) []string {
@@ -189,7 +181,7 @@ func loadFiles(content Content) []string {
 		if file.Type == TYPE_DIR {
 			continue
 		}
-		if filepath.Ext(file.Name) != EXT {
+		if filepath.Ext(file.Name) != GIT_IGNORE {
 			continue
 		}
 		fileList = append(fileList, file.Name)
@@ -197,15 +189,17 @@ func loadFiles(content Content) []string {
 	return fileList
 }
 
-var b = errors.Is(nil, os.ErrDeadlineExceeded)
+type Content []ContentEntry
+
+type ContentEntry struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
 
 func fetchList(client *http.Client, url string) (Content, error) {
 	var content Content
 	resp, err := client.Get(url)
 	if err != nil {
-		if isNetWorkErr(err) {
-			os.Exit(1)
-		}
 		return content, err
 	}
 	defer resp.Body.Close()
@@ -214,14 +208,11 @@ func fetchList(client *http.Client, url string) (Content, error) {
 	}
 	err = json.NewDecoder(resp.Body).Decode(&content)
 	if err != nil {
-		return content, err
+		return content, fmt.Errorf("failed to decode body: %w", err)
 	}
 	return content, nil
 
 }
-
-const LIST_HEADER = "Available .gitignore files:\n\n"
-const SEP = "---\n"
 
 func displayFileList(files []string) {
 	var currentFirst rune
@@ -232,6 +223,7 @@ func displayFileList(files []string) {
 	fmt.Print(LIST_HEADER)
 	for _, f := range files {
 		// get first complete rune, not only first byte
+		// but all files shoulde be ascii only anyway...
 		firstLetter, _ := utf8.DecodeRuneInString(f)
 		firstLetter = unicode.ToLower(firstLetter)
 		if currentFirst == 0 {
@@ -246,12 +238,12 @@ func displayFileList(files []string) {
 	}
 }
 
-func promptForOverwrite(filePath string) (string, error) {
+func promptForOverwrite() (string, error) {
 	reader := bufio.NewReader(os.Stdin)
 	for {
-		fmt.Printf("A '%s' file already exists. What would you like to do? (o)verwrite / (a)ppend / (c)ancel: ", filePath)
+		fmt.Printf("A '%s' file already exists. What would you like to do? (o)verwrite / (a)ppend / (c)ancel: ", GIT_IGNORE)
 		input, _ := reader.ReadString('\n')
-		input = strings.TrimSpace(strings.ToLower(input)) // Clean and normalize input
+		input = strings.TrimSpace(strings.ToLower(input))
 
 		switch input {
 		case "o", "overwrite":
@@ -266,15 +258,46 @@ func promptForOverwrite(filePath string) (string, error) {
 	}
 }
 
-func isNetWorkErr(err error) bool {
+func handleDoList(client *http.Client) error {
+	fileData, err := fetchList(client, CONTENTS_URL)
 	if err != nil {
-		// Check if the error is a timeout error
-		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-			fmt.Printf("Request timed out: %v\n", err)
-		} else if uerr, ok := err.(*url.Error); ok && uerr.Timeout() {
-			fmt.Printf("Request timed out (url.Error): %v\n", err)
-		}
-		return true
+		return fmt.Errorf("could not fetch file list from %s: %w", CONTENTS_URL, err)
 	}
-	return false
+	fileList := loadFiles(fileData)
+	displayFileList(fileList)
+	return nil
+}
+
+func handleFilePull(client *http.Client, language string) (int64, error) {
+
+	var shouldAppend bool
+	var userAction string = "overwrite" // Default to overwrite if no file exists
+
+	_, err := os.Stat(GIT_IGNORE)
+	if err == nil {
+		// file exists
+		choice, err := promptForOverwrite()
+		if err != nil {
+			return 0, fmt.Errorf("Error reading user input: %w\n", err)
+		}
+		userAction = choice
+		switch userAction {
+		case "cancel":
+			fmt.Println("Operation cancelled by user.")
+			os.Exit(0)
+		case "append":
+			fmt.Printf("Appending to '%s'...\n", GIT_IGNORE)
+			shouldAppend = true
+		case "overwrite":
+			fmt.Printf("Overwriting '%s'...\n", GIT_IGNORE)
+			shouldAppend = false
+		}
+	}
+
+	bytesWritten, err := pullGitIgnore(client, language, shouldAppend)
+	if err != nil {
+		return 0, err
+	}
+
+	return bytesWritten, nil
 }
