@@ -4,8 +4,28 @@ on:
   push:
     tags:
       - 'v*.*.*' # Trigger this workflow when a new tag like v1.0.0 is pushed
+env: # Define environment variables accessible to all jobs
+  GO_VERSION: '1.24'
 
 jobs:
+  test:
+    name: Run Go Tests
+    runs-on: ubuntu-latest # Tests can typically run on a single OS/arch
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Download Go modules
+      run: go mod download
+
+    - name: Run tests
+      run: go test ./... -v
   build:
     name: Build ${{ matrix.target_os }}-${{ matrix.target_arch }}
     runs-on: ubuntu-latest # Use Ubuntu as the runner for all builds
@@ -26,7 +46,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.24' # Specify the Go version you want to build with
+        go-version: ${{ env.GO_VERSION }}
 
     - name: Set output filename
       id: set_filename
