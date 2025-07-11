@@ -182,15 +182,19 @@ func handleFilePull(client *http.Client, language string) (int64, error) {
 	}
 	defer out.Close()
 
-	bytesWritten, err := writeGitIgnore(out, body)
+	var bytesWritten int64
 	if fileMode == APPEND {
-		if _, err := out.WriteString("\n"); err != nil {
+		n, err := out.WriteString("\n")
+		if err != nil {
 			return 0, fmt.Errorf("failed to write append separator: %w", err)
 		}
+		bytesWritten += int64(n)
 	}
+	n, err := io.Copy(out, body)
 	if err != nil {
-		return bytesWritten, fmt.Errorf("failed to write file: %w", err)
+		return 0, fmt.Errorf("failed to copy content to file %s: %w", GIT_IGNORE, err)
 	}
+	bytesWritten += n
 
 	return bytesWritten, nil
 }
@@ -209,15 +213,6 @@ func downLoadFile(client *http.Client, langUrl string) (io.ReadCloser, error) {
 	}
 
 	return resp.Body, nil
-}
-
-func writeGitIgnore(dest io.Writer, src io.Reader) (int64, error) {
-	bytesCopied, err := io.Copy(dest, src)
-	if err != nil {
-		return 0, fmt.Errorf("failed to copy content to file %s: %w", GIT_IGNORE, err)
-	}
-
-	return bytesCopied, nil
 }
 
 func loadFiles(content Content) []string {
