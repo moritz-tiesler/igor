@@ -59,6 +59,14 @@ const (
 	SEP         = "---\n"
 )
 
+var ErrGitignoreNotFound = errors.New(
+	".gitignore file not found for the specified language",
+)
+
+var ErrOpCancelledByUser = errors.New(
+	"Operation cancelled by user",
+)
+
 func main() {
 	client := &http.Client{
 		Timeout: 5 * time.Second,
@@ -92,6 +100,10 @@ func main() {
 			fmt.Fprintf(os.Stderr, "For a full list of available languages, use: %s --list\n", os.Args[0])
 			os.Exit(1)
 		}
+		if errors.Is(err, ErrOpCancelledByUser) {
+			fmt.Fprintf(os.Stderr, "%s\n", err.Error())
+			os.Exit(1)
+		}
 		fmt.Fprintf(os.Stderr, "Error downloading .gitignore file: %v\n", err)
 		os.Exit(1)
 	}
@@ -100,9 +112,71 @@ func main() {
 	fmt.Printf("%d bytes written to %s\n", bytesWritten, GIT_IGNORE)
 }
 
-var ErrGitignoreNotFound = errors.New(
-	".gitignore file not found for the specified language",
-)
+func handleDoList(client *http.Client) error {
+	fileData, err := fetchList(client, CONTENTS_URL)
+	if err != nil {
+		return fmt.Errorf("could not fetch file list from %s: %w", CONTENTS_URL, err)
+	}
+	fileList := loadFiles(fileData)
+	displayFileList(fileList)
+	return nil
+}
+
+func handleFilePull(client *http.Client, language string) (int64, error) {
+	langUrl, _ := url.JoinPath(
+		RAW_PREFIX,
+		fmt.Sprintf("%s%s", language, ".gitignore"),
+	)
+
+	// todo: check if available first, then prompt, only the do download
+	body, err := downLoadFile(client, langUrl)
+	if err != nil {
+		return 0, fmt.Errorf("failed to download file %s: %w", langUrl, err)
+	}
+
+	var shouldAppend bool
+	var userAction choice = "overwrite" // Default to overwrite if no file exists
+	_, err = os.Stat(GIT_IGNORE)
+	if err == nil {
+		// file exists
+		choice, err := promptForOverwrite()
+		if err != nil {
+			return 0, fmt.Errorf("Error reading user input: %w\n", err)
+		}
+		userAction = choice
+		switch userAction {
+		case ChoiceCancel:
+			return 0, ErrOpCancelledByUser
+		case ChoiceAppend:
+			fmt.Printf("Appending to '%s'...\n", GIT_IGNORE)
+			shouldAppend = true
+		case ChoiceOverwrite:
+			fmt.Printf("Overwriting '%s'...\n", GIT_IGNORE)
+			shouldAppend = false
+		}
+	} else {
+		if os.IsNotExist(err) {
+			// file will be created
+		} else {
+			// some fs or permission error
+			return 0, fmt.Errorf("failed to check for file %s: %w", GIT_IGNORE, err)
+		}
+	}
+
+	var fileMode int
+	if shouldAppend {
+		fileMode = os.O_APPEND | os.O_CREATE | os.O_WRONLY
+	} else {
+		fileMode = os.O_TRUNC | os.O_CREATE | os.O_WRONLY
+	}
+
+	bytesWritten, err := writeGitIgnore(body, fileMode)
+	if err != nil {
+		return bytesWritten, fmt.Errorf("failed to write file: %w", err)
+	}
+
+	return bytesWritten, nil
+}
 
 func downLoadFile(client *http.Client, langUrl string) (io.ReadCloser, error) {
 	resp, err := client.Get(langUrl)
@@ -168,6 +242,7 @@ func fetchList(client *http.Client, url string) (Content, error) {
 	resp, err := client.Get(url)
 	if err != nil {
 		return content, err
+
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -234,63 +309,4 @@ func promptForOverwrite() (choice, error) {
 			fmt.Println("Invalid choice. Please enter 'o', 'a', or 'c'.")
 		}
 	}
-}
-
-func handleDoList(client *http.Client) error {
-	fileData, err := fetchList(client, CONTENTS_URL)
-	if err != nil {
-		return fmt.Errorf("could not fetch file list from %s: %w", CONTENTS_URL, err)
-	}
-	fileList := loadFiles(fileData)
-	displayFileList(fileList)
-	return nil
-}
-
-func handleFilePull(client *http.Client, language string) (int64, error) {
-	langUrl, _ := url.JoinPath(
-		RAW_PREFIX,
-		fmt.Sprintf("%s%s", language, ".gitignore"),
-	)
-
-	body, err := downLoadFile(client, langUrl)
-	if err != nil {
-		return 0, fmt.Errorf("failed to download file %s: %w", langUrl, err)
-	}
-
-	var shouldAppend bool
-	var userAction choice = "overwrite" // Default to overwrite if no file exists
-	_, err = os.Stat(GIT_IGNORE)
-	if err == nil {
-		// file exists
-		choice, err := promptForOverwrite()
-		if err != nil {
-			return 0, fmt.Errorf("Error reading user input: %w\n", err)
-		}
-		userAction = choice
-		switch userAction {
-		case ChoiceCancel:
-			fmt.Println("Operation cancelled by user.")
-			os.Exit(0)
-		case ChoiceAppend:
-			fmt.Printf("Appending to '%s'...\n", GIT_IGNORE)
-			shouldAppend = true
-		case ChoiceOverwrite:
-			fmt.Printf("Overwriting '%s'...\n", GIT_IGNORE)
-			shouldAppend = false
-		}
-	}
-
-	var fileMode int
-	if shouldAppend {
-		fileMode = os.O_APPEND | os.O_CREATE | os.O_WRONLY
-	} else {
-		fileMode = os.O_TRUNC | os.O_CREATE | os.O_WRONLY
-	}
-
-	bytesWritten, err := writeGitIgnore(body, fileMode)
-	if err != nil {
-		return bytesWritten, fmt.Errorf("failed to write file: %w", err)
-	}
-
-	return bytesWritten, nil
 }
