@@ -129,10 +129,12 @@ func handleFilePull(client *http.Client, language string) (int64, error) {
 	)
 
 	// todo: check if available first, then prompt, only the do download
+	fmt.Printf("Pulling '%s'...\n", langUrl)
 	body, err := downLoadFile(client, langUrl)
 	if err != nil {
 		return 0, fmt.Errorf("failed to download file %s: %w", langUrl, err)
 	}
+	defer body.Close()
 
 	var shouldAppend bool
 	var userAction choice = "overwrite" // Default to overwrite if no file exists
@@ -170,7 +172,18 @@ func handleFilePull(client *http.Client, language string) (int64, error) {
 		fileMode = os.O_TRUNC | os.O_CREATE | os.O_WRONLY
 	}
 
-	bytesWritten, err := writeGitIgnore(body, fileMode)
+	out, err := os.OpenFile(GIT_IGNORE, fileMode, 0644)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open/create file %s: %w", GIT_IGNORE, err)
+	}
+	defer out.Close()
+
+	bytesWritten, err := writeGitIgnore(out, body)
+	if fileMode == APPEND {
+		if _, err := out.WriteString("\n"); err != nil {
+			return 0, fmt.Errorf("failed to write append separator: %w", err)
+		}
+	}
 	if err != nil {
 		return bytesWritten, fmt.Errorf("failed to write file: %w", err)
 	}
@@ -194,21 +207,8 @@ func downLoadFile(client *http.Client, langUrl string) (io.ReadCloser, error) {
 	return resp.Body, nil
 }
 
-func writeGitIgnore(source io.ReadCloser, mode int) (int64, error) {
-	defer source.Close()
-	out, err := os.OpenFile(GIT_IGNORE, mode, 0644)
-	if err != nil {
-		return 0, fmt.Errorf("failed to open/create file %s: %w", GIT_IGNORE, err)
-	}
-	defer out.Close()
-
-	if mode == APPEND {
-		if _, err := out.WriteString("\n"); err != nil {
-			return 0, fmt.Errorf("failed to write append separator: %w", err)
-		}
-	}
-
-	bytesCopied, err := io.Copy(out, source)
+func writeGitIgnore(dest io.Writer, src io.Reader) (int64, error) {
+	bytesCopied, err := io.Copy(dest, src)
 	if err != nil {
 		return 0, fmt.Errorf("failed to copy content to file %s: %w", GIT_IGNORE, err)
 	}
