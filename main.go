@@ -128,17 +128,14 @@ func handleFilePull(client *http.Client, language string) (int64, error) {
 		fmt.Sprintf("%s%s", language, ".gitignore"),
 	)
 
-	// todo: check if available first, then prompt, only the do download
-	fmt.Printf("Pulling '%s'...\n", langUrl)
-	body, err := downLoadFile(client, langUrl)
-	if err != nil {
-		return 0, fmt.Errorf("failed to download file %s: %w", langUrl, err)
+	ok, _ := resourceAvailable(client, langUrl)
+	if !ok {
+		return 0, ErrGitignoreNotFound
 	}
-	defer body.Close()
 
 	var shouldAppend bool
 	var userAction choice = "overwrite" // Default to overwrite if no file exists
-	_, err = os.Stat(GIT_IGNORE)
+	_, err := os.Stat(GIT_IGNORE)
 	if err == nil {
 		// file exists
 		choice, err := promptForOverwrite()
@@ -171,6 +168,13 @@ func handleFilePull(client *http.Client, language string) (int64, error) {
 	} else {
 		fileMode = os.O_TRUNC | os.O_CREATE | os.O_WRONLY
 	}
+
+	fmt.Printf("Pulling '%s'...\n", langUrl)
+	body, err := downLoadFile(client, langUrl)
+	if err != nil {
+		return 0, fmt.Errorf("failed to download file %s: %w", langUrl, err)
+	}
+	defer body.Close()
 
 	out, err := os.OpenFile(GIT_IGNORE, fileMode, 0644)
 	if err != nil {
@@ -309,4 +313,21 @@ func promptForOverwrite() (choice, error) {
 			fmt.Println("Invalid choice. Please enter 'o', 'a', or 'c'.")
 		}
 	}
+}
+
+func resourceAvailable(client *http.Client, url string) (bool, error) {
+
+	resp, err := client.Head(url)
+	if err != nil {
+		return false, fmt.Errorf("failed to make HTTP request to %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return false, ErrGitignoreNotFound
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("received non-OK HTTP status for %s: %s", url, resp.Status)
+	}
+	return true, nil
 }
