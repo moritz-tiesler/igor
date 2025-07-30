@@ -1,6 +1,7 @@
 name: Release CLI Binary
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*.*.*' # Trigger this workflow when a new tag like v1.0.0 is pushed
