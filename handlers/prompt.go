@@ -20,7 +20,7 @@ const (
 	ChoiceCancel    choice = "cancel "
 )
 
-func promptForOverwrite(in io.Reader, out io.Writer) (choice, error) {
+func PromptForOverwrite(in io.Reader, out io.Writer) (choice, error) {
 	reader := bufio.NewReader(in)
 	for {
 		fmt.Fprintf(out, "A '%s' file already exists. What would you like to do? (o)verwrite / (a)ppend / (c)ancel: ", GIT_IGNORE)

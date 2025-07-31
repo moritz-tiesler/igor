@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 )
 
@@ -114,103 +115,185 @@ func TestResourceAvailable(t *testing.T) {
 	})
 }
 
-func TestPromptForOverwrite(t *testing.T) {
-	t.Run("TestPromptForOverwrite_0", func(t *testing.T) {
-		// Create mock reader and writer
+func TestPullIgnoreFile(t *testing.T) {
+	t.Run("TestPullIgnoreFile_0", func(t *testing.T) {
+		// Mock dependencies
+		var calledPrompt bool
+		var calledStat bool
+		var calledOpenFile bool
+
+		// Mock client with successful response
+		client := NewMockClientWithSuccess("mock content")
+
+		// Create a mock file info for os.Stat
+
+		// Define test function
+
+		// Test case: file exists, user chooses overwrite
+		stat := func(string) (bool, error) {
+			return true, nil
+		}
 		var inBuf bytes.Buffer
 		var outBuf bytes.Buffer
-		in := bufio.NewReadWriter(bufio.NewReader(&inBuf), bufio.NewWriter(&inBuf))
-		out := bufio.NewReadWriter(bufio.NewReader(&outBuf), bufio.NewWriter(&outBuf))
+		// in := bufio.NewReader(&inBuf)
+		out := bufio.NewWriter(&outBuf)
 
-		// Call the function with mock reader and writer
-		var result0 choice
-		var result1 error
-		read := make(chan struct{})
-		go func() {
-			result0, result1 = promptForOverwrite(in, out)
-			read <- struct{}{}
-		}()
+		// Mock promptForOverwrite to return ChoiceOverwrite
+		mockPrompt := func(in io.Reader, out io.Writer) (choice, error) {
+			calledPrompt = true
+			return ChoiceOverwrite, nil
+		}
+
+		// Mock openFile to return a mock file
+		mockOpenFile := func(path string, mode int, perm os.FileMode) (*os.File, error) {
+			calledOpenFile = true
+			return &os.File{}, nil
+		}
 
 		// Simulate user input
 		inBuf.WriteString("o\n")
 		out.Flush()
 
-		// Wait for the function to complete
-		<-read
+		// Call the function
+		result0, result1 := PullIgnoreFile(client, "python", mockPrompt, stat, mockOpenFile)
 
-		// Verify the result
-		if result0 != ChoiceOverwrite {
-			t.Errorf("Expected ChoiceOverwrite, got %v", result0)
+		// Verify all mocks were called
+		if !calledPrompt {
+			t.Error("promptForOverwrite was not called")
+		}
+		if !calledStat {
+			t.Error("os.Stat was not called")
+		}
+		if !calledOpenFile {
+			t.Error("os.OpenFile was not called")
+		}
+
+		// Verify result
+		if result0 != 0 {
+			t.Errorf("Expected 0 bytes written, got %d", result0)
 		}
 		if result1 != nil {
 			t.Errorf("Expected nil error, got %v", result1)
 		}
-
 	})
 
-	t.Run("TestPromptForOverwrite_1", func(t *testing.T) {
-		// Create mock reader and writer
+	t.Run("TestPullIgnoreFile_1", func(t *testing.T) {
+		// Mock dependencies
+		var calledPrompt bool
+		var calledStat bool
+		var calledOpenFile bool
+
+		// Mock client with successful response
+		client := NewMockClientWithSuccess("mock content")
+
+		// Create a mock file info for os.Stat
+		stat := func(string) (bool, error) {
+			return true, nil
+		}
+
+		// Define test function
+
+		// Test case: file exists, user chooses append
 		var inBuf bytes.Buffer
 		var outBuf bytes.Buffer
-		in := bufio.NewReadWriter(bufio.NewReader(&inBuf), bufio.NewWriter(&inBuf))
-		out := bufio.NewReadWriter(bufio.NewReader(&outBuf), bufio.NewWriter(&outBuf))
+		// in := bufio.NewReader(&inBuf)
+		out := bufio.NewWriter(&outBuf)
 
-		// Call the function with mock reader and writer
-		var result0 choice
-		var result1 error
-		read := make(chan struct{})
-		go func() {
-			result0, result1 = promptForOverwrite(in, out)
-			read <- struct{}{}
-		}()
+		// Mock os.Stat to return nil (file exists)
+
+		// Mock promptForOverwrite to return ChoiceAppend
+		mockPrompt := func(in io.Reader, out io.Writer) (choice, error) {
+			calledPrompt = true
+			return ChoiceAppend, nil
+		}
+
+		// Mock openFile to return a mock file
+		mockOpenFile := func(path string, mode int, perm os.FileMode) (*os.File, error) {
+			calledOpenFile = true
+			return &os.File{}, nil
+		}
 
 		// Simulate user input
 		inBuf.WriteString("a\n")
 		out.Flush()
 
-		// Wait for the function to complete
-		<-read
+		// Call the function
+		result0, result1 := PullIgnoreFile(client, "python", mockPrompt, stat, mockOpenFile)
 
-		// Verify the result
-		if result0 != ChoiceAppend {
-			t.Errorf("Expected ChoiceAppend, got %v", result0)
+		// Verify all mocks were called
+		if !calledPrompt {
+			t.Error("promptForOverwrite was not called")
+		}
+		if !calledStat {
+			t.Error("os.Stat was not called")
+		}
+		if !calledOpenFile {
+			t.Error("os.OpenFile was not called")
+		}
+
+		// Verify result
+		if result0 != 0 {
+			t.Errorf("Expected 0 bytes written, got %d", result0)
 		}
 		if result1 != nil {
 			t.Errorf("Expected nil error, got %v", result1)
 		}
-
 	})
 
-	t.Run("TestPromptForOverwrite_2", func(t *testing.T) {
-		// Create mock reader and writer
+	t.Run("TestPullIgnoreFile_2", func(t *testing.T) {
+		// Mock dependencies
+		var calledPrompt bool
+		var calledStat bool
+		var calledOpenFile bool
+
+		// Mock client with successful response
+		client := NewMockClientWithSuccess("mock content")
+
+		// Test case: file does not exist
+		stat := func(string) (bool, error) {
+			return false, nil
+		}
 		var inBuf bytes.Buffer
 		var outBuf bytes.Buffer
-		in := bufio.NewReadWriter(bufio.NewReader(&inBuf), bufio.NewWriter(&inBuf))
-		out := bufio.NewReadWriter(bufio.NewReader(&outBuf), bufio.NewWriter(&outBuf))
+		// in := bufio.NewReader(&inBuf)
+		out := bufio.NewWriter(&outBuf)
 
-		// Call the function with mock reader and writer
-		var result0 choice
-		var result1 error
-		read := make(chan struct{})
-		go func() {
-			result0, result1 = promptForOverwrite(in, out)
-			read <- struct{}{}
-		}()
+		// Mock promptForOverwrite to return ChoiceOverwrite
+		mockPrompt := func(in io.Reader, out io.Writer) (choice, error) {
+			calledPrompt = true
+			return ChoiceOverwrite, nil
+		}
+
+		// Mock openFile to return a mock file
+		mockOpenFile := func(path string, mode int, perm os.FileMode) (*os.File, error) {
+			calledOpenFile = true
+			return &os.File{}, nil
+		}
 
 		// Simulate user input
-		inBuf.WriteString("c\n")
+		inBuf.WriteString("o\n")
 		out.Flush()
 
-		// Wait for the function to complete
-		<-read
+		// Call the function
+		result0, result1 := PullIgnoreFile(client, "python", mockPrompt, stat, mockOpenFile)
 
-		// Verify the result
-		if result0 != ChoiceCancel {
-			t.Errorf("Expected ChoiceCancel, got %v", result0)
+		// Verify all mocks were called
+		if !calledPrompt {
+			t.Error("promptForOverwrite was not called")
+		}
+		if !calledStat {
+			t.Error("os.Stat was not called")
+		}
+		if !calledOpenFile {
+			t.Error("os.OpenFile was not called")
+		}
+
+		// Verify result
+		if result0 != 0 {
+			t.Errorf("Expected 0 bytes written, got %d", result0)
 		}
 		if result1 != nil {
 			t.Errorf("Expected nil error, got %v", result1)
 		}
-
 	})
 }

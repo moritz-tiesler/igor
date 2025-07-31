@@ -26,7 +26,13 @@ var ErrGitignoreNotFound = errors.New(
 	".gitignore file not found for the specified language",
 )
 
-func PullIgnoreFile(client Client, language string) (int64, error) {
+func PullIgnoreFile(
+	client Client,
+	language string,
+	promptForOverwrite func(io.Reader, io.Writer) (choice, error),
+	fileCheck func(string) (bool, error),
+	openFile func(string, int, os.FileMode) (*os.File, error),
+) (int64, error) {
 	langUrl, _ := url.JoinPath(
 		RAW_PREFIX,
 		fmt.Sprintf("%s%s", language, ".gitignore"),
@@ -39,8 +45,11 @@ func PullIgnoreFile(client Client, language string) (int64, error) {
 
 	var shouldAppend bool
 	var userAction choice = "overwrite" // Default to overwrite if no file exists
-	_, err := os.Stat(GIT_IGNORE)
-	if err == nil {
+	fExists, err := Exists(GIT_IGNORE)
+	if err != nil {
+		return 0, fmt.Errorf("failed to check for file %s: %w", GIT_IGNORE, err)
+	}
+	if fExists {
 		// file exists
 		choice, err := promptForOverwrite(os.Stdin, os.Stdout)
 		if err != nil {
@@ -56,13 +65,6 @@ func PullIgnoreFile(client Client, language string) (int64, error) {
 		case ChoiceOverwrite:
 			fmt.Printf("Overwriting '%s'...\n", GIT_IGNORE)
 			shouldAppend = false
-		}
-	} else {
-		if os.IsNotExist(err) {
-			// file will be created
-		} else {
-			// some fs or permission error
-			return 0, fmt.Errorf("failed to check for file %s: %w", GIT_IGNORE, err)
 		}
 	}
 
@@ -80,7 +82,7 @@ func PullIgnoreFile(client Client, language string) (int64, error) {
 	}
 	defer body.Close()
 
-	out, err := os.OpenFile(GIT_IGNORE, fileMode, 0644)
+	out, err := openFile(GIT_IGNORE, fileMode, 0644)
 	if err != nil {
 		return 0, fmt.Errorf("failed to open/create file %s: %w", GIT_IGNORE, err)
 	}
@@ -134,4 +136,18 @@ func resourceAvailable(client Client, url string) (bool, error) {
 		return false, fmt.Errorf("received non-OK HTTP status for %s: %s", url, resp.Status)
 	}
 	return true, nil
+}
+
+func Exists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	} else {
+		// some fs or permission error
+		return false, fmt.Errorf("failed to check for file %s: %w", path, err)
+	}
 }

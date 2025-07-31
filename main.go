@@ -74,7 +74,13 @@ func run(cfg Config, args []string, client handlers.Client) {
 	}
 
 	language := args[0]
-	bytesWritten, err := handlers.PullIgnoreFile(client, language)
+	bytesWritten, err := handlers.PullIgnoreFile(
+		client,
+		language,
+		handlers.PromptForOverwrite,
+		handlers.Exists,
+		os.OpenFile,
+	)
 
 	if err != nil {
 		if errors.Is(err, handlers.ErrGitignoreNotFound) {
