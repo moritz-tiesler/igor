@@ -33,8 +33,10 @@ func NewMockClient(response *http.Response, err error) *MockClient {
 
 // NewMockClientWithSuccess creates a mock client that returns a successful response
 func NewMockClientWithSuccess(body string) *MockClient {
+	recorder := httptest.NewRecorder()
+	recorder.Body.WriteString(body)
 	return &MockClient{
-		Response: httptest.NewRecorder().Result(),
+		Response: recorder.Result(),
 		Error:    nil,
 	}
 }
