@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"time"
@@ -73,13 +74,17 @@ func run(cfg Config, args []string, client handlers.Client) {
 		os.Exit(1)
 	}
 
+	open := func(path string, flag int, perm os.FileMode) (io.WriteCloser, error) {
+		return os.OpenFile(path, flag, perm)
+	}
+
 	language := args[0]
 	bytesWritten, err := handlers.PullIgnoreFile(
 		client,
 		language,
 		handlers.PromptForOverwrite,
 		handlers.Exists,
-		os.OpenFile,
+		open,
 	)
 
 	if err != nil {

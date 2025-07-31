@@ -31,7 +31,7 @@ func PullIgnoreFile(
 	language string,
 	promptForOverwrite func(io.Reader, io.Writer) (choice, error),
 	fileCheck func(string) (bool, error),
-	openFile func(string, int, os.FileMode) (*os.File, error),
+	openFile func(string, int, os.FileMode) (io.WriteCloser, error),
 ) (int64, error) {
 	langUrl, _ := url.JoinPath(
 		RAW_PREFIX,
@@ -45,7 +45,7 @@ func PullIgnoreFile(
 
 	var shouldAppend bool
 	var userAction choice = "overwrite" // Default to overwrite if no file exists
-	fExists, err := Exists(GIT_IGNORE)
+	fExists, err := fileCheck(GIT_IGNORE)
 	if err != nil {
 		return 0, fmt.Errorf("failed to check for file %s: %w", GIT_IGNORE, err)
 	}
@@ -90,7 +90,7 @@ func PullIgnoreFile(
 
 	var bytesWritten int64
 	if fileMode == APPEND {
-		n, err := out.WriteString("\n")
+		n, err := out.Write([]byte("\n"))
 		if err != nil {
 			return 0, fmt.Errorf("failed to write append separator: %w", err)
 		}
