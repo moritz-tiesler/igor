@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"os"
+	"io"
 	"strings"
 )
 
@@ -20,10 +20,10 @@ const (
 	ChoiceCancel    choice = "cancel "
 )
 
-func promptForOverwrite() (choice, error) {
-	reader := bufio.NewReader(os.Stdin)
+func promptForOverwrite(in io.Reader, out io.Writer) (choice, error) {
+	reader := bufio.NewReader(in)
 	for {
-		fmt.Printf("A '%s' file already exists. What would you like to do? (o)verwrite / (a)ppend / (c)ancel: ", GIT_IGNORE)
+		fmt.Fprintf(out, "A '%s' file already exists. What would you like to do? (o)verwrite / (a)ppend / (c)ancel: ", GIT_IGNORE)
 		input, err := reader.ReadString('\n')
 		if err != nil {
 			return "", fmt.Errorf("failed to read user input: %w", err)
@@ -38,7 +38,7 @@ func promptForOverwrite() (choice, error) {
 		case "c", "cancel":
 			return ChoiceCancel, nil
 		default:
-			fmt.Println("Invalid choice. Please enter 'o', 'a', or 'c'.")
+			fmt.Fprint(out, "Invalid choice. Please enter 'o', 'a', or 'c'.\n")
 		}
 	}
 }

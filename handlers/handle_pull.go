@@ -42,7 +42,7 @@ func PullIgnoreFile(client Client, language string) (int64, error) {
 	_, err := os.Stat(GIT_IGNORE)
 	if err == nil {
 		// file exists
-		choice, err := promptForOverwrite()
+		choice, err := promptForOverwrite(os.Stdin, os.Stdout)
 		if err != nil {
 			return 0, fmt.Errorf("Error reading user input: %w\n", err)
 		}
